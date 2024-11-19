@@ -29,11 +29,12 @@ var (
 	// body template of event
 	defaultBodyTemplate = `
 {
-	"EventType": "{{ .Type }}",
-	"EventKind": "{{ .InvolvedObject.Kind }}",
-	"EventReason": "{{ .Reason }}",
-	"EventTime": "{{ .LastTimestamp }}",
-	"EventMessage": "{{ .Message }}"
+	"ClusterName": "{{ .ClusterName }}",
+	"EventType": "{{ .Event.Type }}",
+	"EventKind": "{{ .Event.InvolvedObject.Kind }}",
+	"EventReason": "{{ .Event.Reason }}",
+	"EventTime": "{{ .Event.LastTimestamp }}",
+	"EventMessage": "{{ .Event.Message }}"
 }`
 )
 
@@ -45,6 +46,7 @@ type WebHookSink struct {
 	bodyTemplate           string
 	bodyConfigMapName      string
 	bodyConfigMapNamespace string
+	clusterName            string
 }
 
 func (ws *WebHookSink) Name() string {
@@ -117,9 +119,18 @@ func (ws *WebHookSink) RenderBodyTemplate(event *v1.Event) (body string, err err
 		klog.Errorf("Failed to parse template,because of %v", err)
 		return "", err
 	}
+	
+	data := struct {
+		Event       *v1.Event
+		ClusterName string
+	}{
+		Event:       event,
+		ClusterName: ws.clusterName,
+	}
+
 	event.Message = strings.Replace(event.Message, `"`, ``, -1)
 	event.LastTimestamp = metav1.Time{Time: util.GetLastEventTimestamp(event)}
-	if err := tp.Execute(&tpl, event); err != nil {
+	if err := tp.Execute(&tpl, data); err != nil {
 		klog.Errorf("Failed to renderTemplate,because of %v", err)
 		return "", err
 	}
@@ -161,6 +172,13 @@ func NewWebHookSink(uri *url.URL) (*WebHookSink, error) {
 
 	if len(opts["method"]) >= 1 {
 		s.method = opts["method"][0]
+	}
+	
+	if len(opts["clusterName"]) >= 1 {
+		s.clusterName = opts["clusterName"][0] // 存储 clusterName
+	} else {
+		klog.Warning("No clusterName parameter found in URI. Defaulting to empty string.")
+		s.clusterName = ""
 	}
 
 	// set header of webHook
